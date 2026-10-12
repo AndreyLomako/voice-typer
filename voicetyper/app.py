@@ -65,6 +65,11 @@ class App:
         self.icon_png = resource_path("assets/icon.png")
         self.history: list[tuple[float, str]] = []
 
+        if system.IS_LINUX:
+            # По умолчанию customtkinter рисует скругления спецшрифтом; Tk/Xft на части систем
+            # (минимальный набор шрифтов, Xvfb) на этом падает с segfault. Овалы надёжнее.
+            from customtkinter.windows.widgets.core_rendering import DrawEngine
+            DrawEngine.preferred_drawing_method = "circle_shapes"
         ctk.set_appearance_mode(self.settings.theme)
         ctk.set_default_color_theme("blue")
         self.root = ctk.CTk()
