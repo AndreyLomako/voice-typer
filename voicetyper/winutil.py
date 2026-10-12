@@ -6,7 +6,7 @@ import sys
 import winreg
 from ctypes import wintypes
 
-from . import APP_NAME
+from . import APP_DISPLAY, APP_NAME
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -51,7 +51,7 @@ def acquire_single_instance() -> bool:
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
-def message_box(text: str, title: str = APP_NAME) -> None:
+def message_box(text: str, title: str = APP_DISPLAY) -> None:
     user32.MessageBoxW(None, text, title, 0x40)
 
 

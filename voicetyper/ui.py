@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import os
 import time
+import webbrowser
 import tkinter as tk
 from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from . import APP_TITLE, __version__
+from . import APP_DISPLAY, APP_TITLE, AUTHOR, AUTHOR_ROLE, REPO_URL, __version__
 from .audio import list_microphones
 from .config import APPDATA_DIR, CLOUD_PRESETS, LANGUAGES, MODELS_DIR
 from .hotkeys import pretty
@@ -40,6 +41,7 @@ NAV = [
     ("cloud", "Облако (API)"),
     ("ui", "Интерфейс"),
     ("history", "История"),
+    ("help", "Справка"),
 ]
 
 
@@ -89,6 +91,7 @@ class SettingsWindow:
             "cloud": self._page_cloud(),
             "ui": self._page_ui(),
             "history": self._page_history(),
+            "help": self._page_help(),
         }
         self.show_page("main")
 
@@ -99,7 +102,11 @@ class SettingsWindow:
         sb.grid_propagate(False)
         sb.grid_rowconfigure(len(NAV) + 3, weight=1)
 
-        ctk.CTkLabel(sb, text="🎙 VoiceTyper", font=self.f_title).grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
+        logo = ctk.CTkFrame(sb, fg_color="transparent")
+        logo.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
+        ctk.CTkLabel(logo, text="🎙 VoiceTyper", font=self.f_title).pack(side="left")
+        ctk.CTkLabel(logo, text=" hs ", font=ctk.CTkFont("Segoe UI", 13, "bold"), corner_radius=6,
+                     fg_color=("#1f2329", "#f2f4f7"), text_color=("#f2f4f7", "#1f2329")).pack(side="left", padx=(6, 0))
         self.status_label = ctk.CTkLabel(sb, text="● Запуск…", font=self.f_s, text_color=STATUS_COLORS["loading"],
                                          wraplength=185, justify="left", anchor="w")
         self.status_label.grid(row=1, column=0, padx=22, pady=(0, 18), sticky="w")
@@ -116,7 +123,8 @@ class SettingsWindow:
                                         fg_color="#d93a4a", hover_color="#b82f3d",
                                         command=self.app.toggle_recording_from_ui)
         self.record_btn.grid(row=len(NAV) + 4, column=0, padx=16, pady=(8, 6), sticky="ew")
-        ctk.CTkLabel(sb, text=f"версия {__version__}", font=self.f_s, text_color="gray55").grid(
+        ctk.CTkLabel(sb, text=f"{APP_DISPLAY} {__version__}\nРазработчик: {AUTHOR}\n{AUTHOR_ROLE}",
+                     font=self.f_s, text_color="gray55", justify="left", anchor="w").grid(
             row=len(NAV) + 5, column=0, padx=20, pady=(0, 14), sticky="w")
 
     def show_page(self, key: str):
@@ -127,6 +135,8 @@ class SettingsWindow:
             b.configure(fg_color=("gray78", "gray22") if k == key else "transparent")
         if key == "history":
             self.refresh_history()
+        if key == "help":
+            self.update_help()
         if key != "main" and self._mic_test:
             self._toggle_mic_test()
 
@@ -416,6 +426,53 @@ class SettingsWindow:
         self.history_box = ctk.CTkTextbox(c, height=380, font=self.f_b, wrap="word")
         self.history_box.grid(sticky="nsew", padx=16, pady=(0, 16))
         return p
+
+    def _page_help(self):
+        p = self._page("Справка", f"{APP_TITLE}, версия {__version__}.")
+
+        c = self._card(p, "Как пользоваться")
+        self.help_label = ctk.CTkLabel(c, text="", font=self.f_b, justify="left", anchor="w", wraplength=600)
+        self.help_label.grid(sticky="w", padx=16, pady=(0, 14))
+
+        c = self._card(p, "Системные требования")
+        ctk.CTkLabel(c, font=self.f_b, justify="left", anchor="w", wraplength=600, text=(
+            "• Windows 10 или 11, 64-бит. Linux и macOS не поддерживаются.\n"
+            "• Процессор: 64-битный, от 4 потоков (для моделей medium/large желательно 8+).\n"
+            "• Память: от 4 ГБ ОЗУ для модели small (сама модель занимает ~1 ГБ), 8 ГБ для medium и large.\n"
+            "• Диск: 110 МБ под программу и от 75 МБ до 3 ГБ под модель (small — 480 МБ).\n"
+            "• Микрофон: любой, встроенный или USB.\n"
+            "• Интернет: только чтобы один раз скачать модель (или для облачного режима).\n"
+            "• Видеокарта не обязательна; для ускорения — NVIDIA с CUDA 12 и cuDNN 9.")
+        ).grid(sticky="w", padx=16, pady=(0, 14))
+
+        c = self._card(p, "Стоимость")
+        ctk.CTkLabel(c, font=self.f_b, justify="left", anchor="w", wraplength=600, text=(
+            "Программа бесплатная (лицензия MIT). Локальное распознавание работает без интернета и "
+            "без оплаты. Платным может быть только облачный режим — по тарифам выбранного провайдера.")
+        ).grid(sticky="w", padx=16, pady=(0, 14))
+
+        c = self._card(p, "Разработчик")
+        ctk.CTkLabel(c, text=f"{AUTHOR} — {AUTHOR_ROLE}", font=self.f_bb, anchor="w").grid(
+            sticky="w", padx=16, pady=(0, 6))
+        ctk.CTkButton(c, text="Страница проекта на GitHub", width=240,
+                      command=lambda: webbrowser.open(REPO_URL)).grid(sticky="w", padx=16, pady=(0, 14))
+        return p
+
+    def update_help(self):
+        s = self.s
+        where = "под указателем мыши" if s.insert_target == "mouse" else "в активном поле ввода"
+        self.help_label.configure(text="\n".join([
+            f"1. Наведите мышь на поле, куда нужно вставить текст (текст появится {where}).",
+            f"2. Зажмите  {pretty(s.hotkey_hold)}  и говорите. Отпустите — текст вставится.",
+            f"3. Для длинной диктовки нажмите  {pretty(s.hotkey_toggle)}  — начать, ещё раз — закончить.",
+            f"4. {pretty(s.hotkey_cancel)} — отменить запись без вставки.",
+            "",
+            "• Значок в трее (возле часов): двойной клик — настройки, правый клик — меню.",
+            "• Красный значок — идёт запись, оранжевый — распознавание.",
+            "• Если нажать другую клавишу, удерживая клавишу записи, запись отменится.",
+            "• Имена и термины пишутся точнее, если добавить их в «Подсказку-словарь».",
+            "• Автозапуск с Windows включается в разделе «Интерфейс».",
+        ]))
 
     # ------------------------------------------------------------ действия
     def _engine_changed(self):

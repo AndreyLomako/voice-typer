@@ -122,7 +122,7 @@ class App:
             tray_state = {"recording": "recording", "processing": "processing", "loading": "processing"}.get(state)
             if tray_state is None:
                 tray_state = "idle" if self.settings.hotkeys_enabled else "disabled"
-            self.tray.set_state(tray_state, f"VoiceTyper — {text}")
+            self.tray.set_state(tray_state, f"VoiceTyper hs — {text}")
 
         self.ui(apply)
 

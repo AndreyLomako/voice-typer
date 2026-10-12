@@ -33,7 +33,7 @@ def main() -> None:
     from .winutil import acquire_single_instance, message_box
 
     if not acquire_single_instance():
-        message_box("VoiceTyper уже запущен — значок находится в системном трее (возле часов).")
+        message_box("VoiceTyper hs уже запущен — значок находится в системном трее (возле часов).")
         return
 
     from .app import App, setup_logging
