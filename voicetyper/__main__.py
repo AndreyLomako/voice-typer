@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 
 def _transcribe_file(src: str, dst: str, model: str | None = None) -> None:
@@ -38,8 +39,13 @@ def main() -> None:
 
     if "--gui-smoke" in sys.argv:
         import faulthandler
-        faulthandler.enable(all_threads=True)
-        faulthandler.dump_traceback_later(60, exit=True)  # зависание → стеки всех потоков и выход
+        import tempfile
+
+        # В оконной сборке Windows stderr нет — пишем в файл (иначе enable() бросит исключение,
+        # и PyInstaller покажет модальное окно с ошибкой)
+        faults = sys.stderr or open(Path(tempfile.gettempdir()) / "voicetyper-smoke-faults.txt", "w")
+        faulthandler.enable(faults, all_threads=True)
+        faulthandler.dump_traceback_later(60, exit=True, file=faults)  # зависание → стеки и выход
         from .app import App, setup_logging
         setup_logging(smoke=True)
         App(minimized=True, smoke_seconds=8).run()
