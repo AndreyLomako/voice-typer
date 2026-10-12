@@ -29,6 +29,9 @@ DEVICE_INFO = {"cpu": "Процессор (CPU)", "cuda": "Видеокарта 
 if not system.SUPPORTS_CUDA:
     DEVICE_INFO.pop("cuda")
 FONT = system.UI_FONT
+# Tk 8.6 на Linux падает (segfault) при выводе эмодзи через Xft — там только символы обычных шрифтов
+G = ({"mic": "", "play": "»", "eye": "◉", "warn": "!", "x": "×"} if system.IS_LINUX else
+     {"mic": "🎙 ", "play": "⏯", "eye": "👁", "warn": "⚠", "x": "✕"})
 
 REQUIREMENTS = {
     "windows": [
@@ -135,7 +138,7 @@ class SettingsWindow:
 
         logo = ctk.CTkFrame(sb, fg_color="transparent")
         logo.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
-        ctk.CTkLabel(logo, text="🎙 VoiceTyper", font=self.f_title).pack(side="left")
+        ctk.CTkLabel(logo, text=f"{G['mic']}VoiceTyper", font=self.f_title).pack(side="left")
         ctk.CTkLabel(logo, text=" hs ", font=ctk.CTkFont(FONT, 13, "bold"), corner_radius=6,
                      fg_color=("#1f2329", "#f2f4f7"), text_color=("#f2f4f7", "#1f2329")).pack(side="left", padx=(6, 0))
         self.status_label = ctk.CTkLabel(sb, text="● Запуск…", font=self.f_s, text_color=STATUS_COLORS["loading"],
@@ -339,7 +342,7 @@ class SettingsWindow:
                                 hover_color=("gray70", "gray30"))
             btn.configure(command=lambda a=attr, b=btn: self._capture_hotkey(a, b))
             btn.pack(side="left")
-            ctk.CTkButton(box, text="✕", width=34, height=34, fg_color="transparent", text_color="gray60",
+            ctk.CTkButton(box, text=G["x"], width=34, height=34, fg_color="transparent", text_color="gray60",
                           hover_color=("gray80", "gray25"),
                           command=lambda a=attr, b=btn: self._set_hotkey(a, b, "")).pack(side="left", padx=(6, 0))
             self.hk_buttons[attr] = btn
@@ -427,7 +430,7 @@ class SettingsWindow:
         def toggle_show():
             key_entry.configure(show="" if key_entry.cget("show") else "•")
 
-        ctk.CTkButton(box, text="👁", width=36, command=toggle_show).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(box, text=G["eye"], width=36, command=toggle_show).pack(side="left", padx=(8, 0))
 
         right = self._row(c, "Проверка", "Отправит секунду тишины, чтобы проверить адрес и ключ.")
         box = ctk.CTkFrame(right, fg_color="transparent")
@@ -588,9 +591,9 @@ class SettingsWindow:
         keys = [self.s.hotkey_hold, self.s.hotkey_toggle, self.s.hotkey_cancel]
         filled = [k for k in keys if k]
         if len(filled) != len(set(filled)):
-            self.hk_warning.configure(text="⚠ Одна и та же комбинация назначена на несколько действий.")
+            self.hk_warning.configure(text=f"{G['warn']} Одна и та же комбинация назначена на несколько действий.")
         elif chord and "+" not in chord and len(chord) == 1:
-            self.hk_warning.configure(text="⚠ Одиночная буква будет срабатывать при обычном наборе текста.")
+            self.hk_warning.configure(text=f"{G['warn']} Одиночная буква будет срабатывать при обычном наборе текста.")
         else:
             self.hk_warning.configure(text="")
         self.update_tip()
@@ -636,17 +639,17 @@ class SettingsWindow:
                  else "в активное поле ввода")
         lines = []
         if hold:
-            lines.append(f"🎙  Зажмите  {pretty(hold)}  и говорите — отпустите, и текст появится {where}.")
+            lines.append(f"{G['mic'].strip() or '•'}  Зажмите  {pretty(hold)}  и говорите — отпустите, и текст появится {where}.")
         if toggle:
-            lines.append(f"⏯  Или нажмите  {pretty(toggle)}  один раз для начала и ещё раз для окончания.")
+            lines.append(f"{G['play']}  Или нажмите  {pretty(toggle)}  один раз для начала и ещё раз для окончания.")
         if self.s.hotkey_cancel:
-            lines.append(f"✕  {pretty(self.s.hotkey_cancel)} — отменить запись.")
+            lines.append(f"{G['x']}  {pretty(self.s.hotkey_cancel)} — отменить запись.")
         if not lines:
             lines.append("Горячие клавиши не заданы — назначьте их в разделе «Горячие клавиши».")
         self.tip_label.configure(text="\n".join(lines))
 
     def show_permission_problem(self, text: str):
-        self.perm_label.configure(text="⚠ " + text)
+        self.perm_label.configure(text=G["warn"] + " " + text)
         self.perm_card.grid()
 
     def set_status(self, state: str, text: str):

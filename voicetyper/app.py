@@ -450,14 +450,25 @@ class App:
 
     def quit(self, exit_code: int = 0, save: bool = True):
         log.info("Выход")
-        try:
-            self.hotkeys.stop()
-            self.recorder.stop()
-            if save:
+        if save:
+            try:
                 self.settings.save()
-        finally:
-            if self.tray is not None:
-                self.tray.stop()
+            except OSError:
+                log.exception("Не удалось сохранить настройки")
+        # Остановка хука/трея/звука может зависнуть (нет рабочего стола, занят драйвер) —
+        # даём им 2 секунды в фоне и выходим в любом случае.
+        steps = [self.hotkeys.stop, self.recorder.stop]
+        if self.tray is not None:
+            steps.append(self.tray.stop)
+        workers = [threading.Thread(target=step, daemon=True) for step in steps]
+        for w in workers:
+            w.start()
+        deadline = time.time() + 2
+        for w in workers:
+            w.join(max(0.0, deadline - time.time()))
+        try:
             self.root.destroy()
-            logging.shutdown()
-            os._exit(exit_code)
+        except Exception:
+            pass
+        logging.shutdown()
+        os._exit(exit_code)
