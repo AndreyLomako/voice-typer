@@ -1,11 +1,13 @@
 """Маленький индикатор у курсора: запись / распознавание / результат."""
 from __future__ import annotations
 
-import ctypes
 import math
 import tkinter as tk
 
-from .winutil import cursor_pos, make_click_through
+from . import system
+from .system import cursor_pos
+
+_FONT = system.UI_FONT
 
 _BG = "#1f2329"
 _FG = "#f2f4f7"
@@ -29,8 +31,10 @@ class Overlay:
         self.canvas = tk.Canvas(self.win, width=self.w, height=self.h, bg=_BG, highlightthickness=0, bd=0)
         self.canvas.pack()
         self.win.update_idletasks()
-        hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
-        make_click_through(hwnd)
+        try:
+            system.make_overlay_passive(self.win)
+        except Exception:
+            pass
 
         self.mode = "hidden"
         self.text = ""
@@ -108,9 +112,9 @@ class Overlay:
             r = (6 + 2 * pulse) * k
             c.create_oval(20 * k - r, cy - r, 20 * k + r, cy + r, fill=_RED, outline="")
             secs = int(self.seconds_fn())
-            c.create_text(38 * k, 14 * k, text=self.text, fill=_FG, anchor="w", font=("Segoe UI", 10, "bold"))
+            c.create_text(38 * k, 14 * k, text=self.text, fill=_FG, anchor="w", font=(_FONT, 10, "bold"))
             c.create_text(self.w - 12 * k, 14 * k, text=f"{secs // 60}:{secs % 60:02d}", fill=_MUTED,
-                          anchor="e", font=("Segoe UI", 9))
+                          anchor="e", font=(_FONT, 9))
             x0, x1, y0, y1 = 38 * k, self.w - 12 * k, 30 * k, 35 * k
             c.create_rectangle(x0, y0, x1, y1, fill="#2c323a", outline="")
             lvl = max(0.0, min(1.0, self.level_fn()))
@@ -130,4 +134,4 @@ class Overlay:
                 c.create_oval(14 * k, cy - 6 * k, 26 * k, cy + 6 * k, fill=color, outline="")
                 tx = 36 * k
             text = self.text if len(self.text) <= 30 else self.text[:29] + "…"
-            c.create_text(tx, cy, text=text, fill=_FG, anchor="w", font=("Segoe UI", 10))
+            c.create_text(tx, cy, text=text, fill=_FG, anchor="w", font=(_FONT, 10))

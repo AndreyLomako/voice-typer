@@ -1,16 +1,13 @@
-"""Настройки приложения: хранение в %APPDATA%\\VoiceTyper\\settings.json."""
+"""Настройки приложения (JSON в папке настроек пользователя)."""
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass, field, fields
-from pathlib import Path
 
-from . import APP_NAME
-from .vault import protect, unprotect
+from . import system
 
-APPDATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
-MODELS_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / APP_NAME / "models"
+APPDATA_DIR = system.config_dir()
+MODELS_DIR = system.data_dir() / "models"
 SETTINGS_FILE = APPDATA_DIR / "settings.json"
 LOG_FILE = APPDATA_DIR / "voicetyper.log"
 
@@ -50,15 +47,15 @@ class Settings:
     cloud_preset: str = "OpenAI"
     cloud_base_url: str = "https://api.openai.com/v1"
     cloud_model: str = "gpt-4o-mini-transcribe"
-    cloud_api_key: str = ""               # хранится зашифрованным (DPAPI)
+    cloud_api_key: str = ""               # на диске — только в зашифрованном виде / в системном хранилище
 
     # Микрофон
     microphone: str = ""                  # пусто = системный по умолчанию
     max_seconds: int = 120
 
     # Горячие клавиши
-    hotkey_hold: str = "right ctrl"
-    hotkey_toggle: str = "ctrl+alt+space"
+    hotkey_hold: str = system.DEFAULT_HOLD
+    hotkey_toggle: str = system.DEFAULT_TOGGLE
     hotkey_cancel: str = "esc"
     hotkeys_enabled: bool = True
 
@@ -86,18 +83,28 @@ class Settings:
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return s
-        known = {f.name for f in fields(cls)} - {"_extra"}
-        for key, value in data.items():
-            if key in known:
-                setattr(s, key, value)
-        s.cloud_api_key = unprotect(data.get("cloud_api_key_enc", ""))
+        if not isinstance(data, dict):
+            return s
+        for f in fields(cls):
+            if f.name in ("_extra", "cloud_api_key") or f.name not in data:
+                continue
+            value, default = data[f.name], getattr(s, f.name)
+            # Повреждённый или подправленный вручную файл не должен ломать программу
+            if type(value) is type(default) or (isinstance(default, int) and type(value) is int):
+                setattr(s, f.name, value)
+        s.max_seconds = min(max(int(s.max_seconds), 5), 600)
+        if s.local_model not in LOCAL_MODELS:
+            s.local_model = "small"
+        enc = data.get("cloud_api_key_enc", "")
+        s.cloud_api_key = system.unprotect(enc) if isinstance(enc, str) else ""
         return s
 
     def save(self) -> None:
         APPDATA_DIR.mkdir(parents=True, exist_ok=True)
         data = asdict(self)
         data.pop("_extra", None)
-        data["cloud_api_key_enc"] = protect(data.pop("cloud_api_key"))
+        data["cloud_api_key_enc"] = system.protect(data.pop("cloud_api_key"))
         tmp = SETTINGS_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        system.restrict_file(tmp)
         tmp.replace(SETTINGS_FILE)

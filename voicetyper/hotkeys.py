@@ -1,17 +1,15 @@
-"""Глобальные горячие клавиши поверх низкоуровневого хука библиотеки keyboard.
+"""Глобальные горячие клавиши поверх низкоуровневого хука ОС (см. system.KeyHook).
 
-Своя логика сопоставления нужна, потому что keyboard не различает левый и правый
-Ctrl/Alt/Shift в add_hotkey (одинаковый scan code), а для push-to-talk важно
-отслеживать и нажатие, и отпускание.
+Своя логика сопоставления нужна, потому что готовые библиотеки не различают левый
+и правый Ctrl/Alt/Shift, а для push-to-talk важно отслеживать и нажатие, и отпускание.
 """
 from __future__ import annotations
 
-import ctypes
 import logging
 import threading
 from typing import Callable
 
-import keyboard
+from . import system
 
 log = logging.getLogger(__name__)
 
@@ -44,19 +42,15 @@ _PRETTY = {
     "tab": "Tab", "backspace": "Backspace", "pause": "Pause", "scroll lock": "Scroll Lock",
     "insert": "Insert", "delete": "Delete", "home": "Home", "end": "End",
     "page up": "PgUp", "page down": "PgDn",
+    **system.KEY_NAMES,
 }
-
-
-_VK = {
-    "left ctrl": 0xA2, "right ctrl": 0xA3, "left alt": 0xA4, "right alt": 0xA5,
-    "left shift": 0xA0, "right shift": 0xA1, "left windows": 0x5B, "right windows": 0x5C,
-}
-_user32 = ctypes.windll.user32
 
 
 def _physically_down(name: str, scan: int) -> bool:
-    vk = _VK.get(name) or _user32.MapVirtualKeyW(scan, 3)  # MAPVK_VSC_TO_VK_EX
-    return not vk or bool(_user32.GetAsyncKeyState(vk) & 0x8000)
+    try:
+        return system.physically_down(name, scan)
+    except Exception:
+        return True
 
 
 def canon(name: str) -> str:
@@ -95,10 +89,7 @@ class _Chord:
         self.scan_codes: dict[str, set[int]] = {}
         for t in self.tokens:
             if t not in _GENERIC and canon(t) not in _MODIFIERS:
-                try:
-                    self.scan_codes[t] = set(keyboard.key_to_scan_codes(t))
-                except ValueError:
-                    self.scan_codes[t] = set()
+                self.scan_codes[t] = system.scan_codes(t)
 
     def _token_matches(self, token: str, name: str, scan: int) -> bool:
         if token in _GENERIC:
@@ -138,13 +129,18 @@ class HotkeyManager:
         self._lock = threading.Lock()
         self._hook = None
 
+    @property
+    def permission_error(self) -> str | None:
+        return self._hook.permission_error if self._hook is not None else None
+
     def start(self) -> None:
         if self._hook is None:
-            self._hook = keyboard.hook(self._on_event)
+            self._hook = system.KeyHook(self._on_event)
+            self._hook.start()
 
     def stop(self) -> None:
         if self._hook is not None:
-            keyboard.unhook(self._hook)
+            self._hook.stop()
             self._hook = None
 
     def configure(self, hold: str, toggle: str, cancel: str, enabled: bool) -> None:
@@ -162,9 +158,9 @@ class HotkeyManager:
         with self._lock:
             self._capture = None
 
-    def _on_event(self, e: keyboard.KeyboardEvent) -> None:
+    def _on_event(self, name: str, scan: int, down: bool) -> None:
         try:
-            self._handle(canon(e.name), e.scan_code, e.event_type == keyboard.KEY_DOWN)
+            self._handle(canon(name), scan, down)
         except Exception:
             log.exception("Ошибка обработки клавиши")
 

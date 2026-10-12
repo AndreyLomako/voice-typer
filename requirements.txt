@@ -2,8 +2,13 @@ faster-whisper>=1.2
 sounddevice>=0.5
 numpy>=2.0
 customtkinter>=5.2
-pystray>=0.19
 pillow>=10.0
-keyboard>=0.13.5
-pyperclip>=1.9
 requests>=2.31
+pystray>=0.19; sys_platform != "darwin"
+keyboard>=0.13.5; sys_platform == "win32"
+pyperclip>=1.9; sys_platform != "win32"
+keyring>=25; sys_platform != "win32"
+pynput>=1.8; sys_platform == "linux"
+python-xlib>=0.33; sys_platform == "linux"
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10; sys_platform == "darwin"

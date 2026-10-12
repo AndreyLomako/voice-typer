@@ -7,24 +7,20 @@ import queue
 import sys
 import threading
 import time
-import winsound
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import customtkinter as ctk
 import numpy as np
-import pyperclip
 
-from . import APP_NAME
+from . import APP_DISPLAY, APP_NAME, system
 from .audio import SAMPLE_RATE, Recorder
 from .config import APPDATA_DIR, LOG_FILE, Settings
 from .engines import CloudEngine, Transcriber
 from .hotkeys import HotkeyManager, pretty
 from .inserter import insert_text
 from .overlay import Overlay
-from .tray import Tray
 from .ui import SettingsWindow
-from .winutil import cursor_pos, set_autostart
 
 log = logging.getLogger(APP_NAME)
 
@@ -40,6 +36,7 @@ def resource_path(rel: str) -> str:
 def setup_logging() -> None:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+    system.restrict_file(LOG_FILE)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logging.basicConfig(level=logging.INFO, handlers=[handler])
     sys.excepthook = lambda *exc: log.critical("Необработанная ошибка", exc_info=exc)
@@ -50,6 +47,7 @@ class App:
     def __init__(self, minimized: bool = False):
         self.settings = Settings.load()
         self.icon_path = resource_path("assets/icon.ico")
+        self.icon_png = resource_path("assets/icon.png")
         self.history: list[tuple[float, str]] = []
 
         ctk.set_appearance_mode(self.settings.theme)
@@ -71,19 +69,16 @@ class App:
         self.overlay = Overlay(self.root)
         self.hotkeys = HotkeyManager(self._on_hold_start, self._on_hold_end, self._on_toggle, self._on_cancel)
         self.window = SettingsWindow(self)
-        self.tray = Tray(
-            on_settings=lambda: self.ui(self.window.show),
-            on_toggle_record=lambda: self.toggle_recording("tray"),
-            on_toggle_enabled=self._toggle_hotkeys_enabled,
-            on_copy_last=self.copy_last,
-            on_quit=lambda: self.ui(self.quit),
-            is_enabled=lambda: self.settings.hotkeys_enabled,
-        )
+        self.tray = self._create_tray()
+        if system.IS_MAC:
+            # Клик по значку в Dock открывает окно, Cmd+Q — корректный выход
+            self.root.createcommand("::tk::mac::ReopenApplication", self.window.show)
+            self.root.createcommand("::tk::mac::Quit", self.quit)
 
         self.apply_settings(save=False)
         self.hotkeys.start()
-        self.tray.run()
         self.request_model_preload()
+        self.root.after(1200, self._check_permissions)
 
         if self.settings.first_run or not (minimized or self.settings.start_minimized):
             # после старта mainloop: CTk при первом запуске сам прячет окно, перекрашивая заголовок
@@ -94,6 +89,38 @@ class App:
         self.root.after(30, self._poll_queue)
 
     # ------------------------------------------------------------ потоки → UI
+    def _create_tray(self):
+        """На macOS трея нет (pystray и Tk делят главный поток) — вместо него Dock."""
+        if system.IS_MAC:
+            return None
+        try:
+            from .tray import Tray
+            tray = Tray(
+                on_settings=lambda: self.ui(self.window.show),
+                on_toggle_record=lambda: self.toggle_recording("tray"),
+                on_toggle_enabled=self._toggle_hotkeys_enabled,
+                on_copy_last=self.copy_last,
+                on_quit=lambda: self.ui(self.quit),
+                is_enabled=lambda: self.settings.hotkeys_enabled,
+            )
+            tray.run()
+            return tray
+        except Exception:
+            log.exception("Значок в трее недоступен")
+            return None
+
+    def _check_permissions(self):
+        problem = self.hotkeys.permission_error or system.check_permissions()
+        if problem:
+            log.warning("Права/окружение: %s", problem)
+            self._set_status("error", problem)
+            self.window.show_permission_problem(problem)
+            self.window.show()
+
+    def _notify(self, text: str):
+        if self.tray is not None:
+            self.tray.notify(text)
+
     def ui(self, fn) -> None:
         """Выполнить fn в потоке интерфейса (Tk не потокобезопасен)."""
         self._queue.put(fn)
@@ -119,10 +146,12 @@ class App:
 
         def apply():
             self.window.set_status(state, text)
+            if self.tray is None:
+                return
             tray_state = {"recording": "recording", "processing": "processing", "loading": "processing"}.get(state)
             if tray_state is None:
                 tray_state = "idle" if self.settings.hotkeys_enabled else "disabled"
-            self.tray.set_state(tray_state, f"VoiceTyper hs — {text}")
+            self.tray.set_state(tray_state, f"{APP_DISPLAY} — {text}")
 
         self.ui(apply)
 
@@ -142,7 +171,7 @@ class App:
             s.save()
         self.hotkeys.configure(s.hotkey_hold, s.hotkey_toggle, s.hotkey_cancel, s.hotkeys_enabled)
         try:
-            set_autostart(s.autostart)
+            system.set_autostart(s.autostart)
         except OSError:
             log.exception("Не удалось изменить автозапуск")
         if self.state == "idle":
@@ -183,7 +212,12 @@ class App:
         if not self._hidden_notice_shown:
             self._hidden_notice_shown = True
             hk = pretty(self.settings.hotkey_hold or self.settings.hotkey_toggle)
-            self.tray.notify(f"Программа работает в трее. Диктуйте с помощью {hk}.")
+            self._notify(f"Программа работает в трее. Диктуйте с помощью {hk}.")
+
+    @property
+    def can_hide_to_background(self) -> bool:
+        """Есть ли способ вернуть скрытое окно: трей (Windows/Linux) или Dock (macOS)."""
+        return self.tray is not None or system.IS_MAC
 
     # ------------------------------------------------------------ горячие клавиши
     def _on_hold_start(self):
@@ -245,7 +279,7 @@ class App:
             self.state = "processing"
             session = self._session
             source = self._source
-        mouse = cursor_pos()
+        mouse = system.cursor_pos()
         audio = self.recorder.stop()
         peak = self.recorder.peak
         self._beep(620)
@@ -287,7 +321,7 @@ class App:
         self.history.append((time.time(), text))
         self.history[:] = self.history[-100:]
         if source in ("ui", "tray"):
-            pyperclip.copy(text.strip())
+            system.clipboard_set_text(text.strip(), private=False)
             self._finish(session, text, "Скопировано в буфер обмена")
         else:
             if self.settings.show_overlay:
@@ -339,11 +373,15 @@ class App:
         if self.settings.show_overlay:
             self.ui(lambda: self.overlay.error(text))
         else:
-            self.tray.notify(text)
+            self._notify(text)
 
     def _beep(self, freq: int):
         if self.settings.play_sounds:
-            threading.Thread(target=winsound.Beep, args=(freq, 70), daemon=True).start()
+            try:
+                if not system.beep(freq):
+                    self.ui(self.root.bell)
+            except Exception:
+                log.exception("Не удалось воспроизвести сигнал")
 
     # ------------------------------------------------------------ прочее для UI
     def start_mic_test(self) -> bool:
@@ -376,8 +414,8 @@ class App:
 
     def copy_last(self):
         if self.history:
-            pyperclip.copy(self.history[-1][1].strip())
-            self.tray.notify("Последний текст скопирован в буфер обмена")
+            system.clipboard_set_text(self.history[-1][1].strip(), private=False)
+            self._notify("Последний текст скопирован в буфер обмена")
 
     def quit(self):
         log.info("Выход")
@@ -386,6 +424,7 @@ class App:
             self.recorder.stop()
             self.settings.save()
         finally:
-            self.tray.stop()
+            if self.tray is not None:
+                self.tray.stop()
             self.root.destroy()
             os._exit(0)

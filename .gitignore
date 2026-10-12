@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 build/
 dist/
+release/
 *.spec
 assets/icon.png
+assets/icon-256.png

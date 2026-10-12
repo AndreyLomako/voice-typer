@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from . import APP_DISPLAY, APP_TITLE, AUTHOR, AUTHOR_ROLE, REPO_URL, __version__
+from . import APP_DISPLAY, APP_TITLE, AUTHOR, AUTHOR_ROLE, REPO_URL, __version__, system
 from .audio import list_microphones
 from .config import APPDATA_DIR, CLOUD_PRESETS, LANGUAGES, MODELS_DIR
 from .hotkeys import pretty
@@ -26,6 +26,33 @@ MODEL_INFO = {
     "large-v3": "large-v3 — 3 ГБ, максимум, очень медленно на CPU",
 }
 DEVICE_INFO = {"cpu": "Процессор (CPU)", "cuda": "Видеокарта NVIDIA (CUDA)"}
+if not system.SUPPORTS_CUDA:
+    DEVICE_INFO.pop("cuda")
+FONT = system.UI_FONT
+
+REQUIREMENTS = {
+    "windows": [
+        "Windows 10 или 11, 64-бит.",
+        "Процессор: 64-битный, от 4 потоков (для моделей medium/large желательно 8+).",
+        "Память: от 4 ГБ ОЗУ для модели small (сама модель занимает ~1 ГБ), 8 ГБ для medium и large.",
+        "Диск: 110 МБ под программу и от 75 МБ до 3 ГБ под модель (small — 480 МБ).",
+        "Видеокарта не обязательна; для ускорения — NVIDIA с CUDA 12 и cuDNN 9.",
+    ],
+    "macos": [
+        "macOS 13 Ventura или новее, Mac на Apple Silicon (M1 и новее).",
+        "Память: от 8 ГБ (модель small занимает ~1 ГБ).",
+        "Диск: ~250 МБ под программу и от 75 МБ до 3 ГБ под модель (small — 480 МБ).",
+        "Разрешения: Микрофон, Универсальный доступ и Мониторинг ввода "
+        "(Системные настройки → Конфиденциальность и безопасность).",
+    ],
+    "linux": [
+        "64-битный дистрибутив с glibc 2.35+ (Ubuntu 22.04, Debian 12, Fedora 36 и новее).",
+        "Сессия X11 (Xorg). В Wayland глобальные клавиши и вставка в другие окна не работают.",
+        "Пакеты: libportaudio2 и xclip (Ubuntu/Debian: sudo apt install libportaudio2 xclip).",
+        "Память: от 4 ГБ ОЗУ для модели small, 8 ГБ для medium и large.",
+        "Диск: ~200 МБ под программу и от 75 МБ до 3 ГБ под модель (small — 480 МБ).",
+    ],
+}
 THEME_INFO = {"dark": "Тёмная", "light": "Светлая", "system": "Как в системе"}
 DEFAULT_MIC = "Системный по умолчанию"
 
@@ -66,15 +93,19 @@ class SettingsWindow:
         r.minsize(780, 540)
         r.protocol("WM_DELETE_WINDOW", self.hide)
         try:
-            r.iconbitmap(app.icon_path)
+            if system.IS_WINDOWS:
+                r.iconbitmap(app.icon_path)
+            else:
+                self._icon_img = tk.PhotoImage(file=app.icon_png)
+                r.iconphoto(True, self._icon_img)
         except Exception:
             pass
 
-        self.f_title = ctk.CTkFont("Segoe UI", 22, "bold")
-        self.f_h = ctk.CTkFont("Segoe UI", 15, "bold")
-        self.f_b = ctk.CTkFont("Segoe UI", 13)
-        self.f_bb = ctk.CTkFont("Segoe UI", 13, "bold")
-        self.f_s = ctk.CTkFont("Segoe UI", 12)
+        self.f_title = ctk.CTkFont(FONT, 22, "bold")
+        self.f_h = ctk.CTkFont(FONT, 15, "bold")
+        self.f_b = ctk.CTkFont(FONT, 13)
+        self.f_bb = ctk.CTkFont(FONT, 13, "bold")
+        self.f_s = ctk.CTkFont(FONT, 12)
 
         r.grid_columnconfigure(1, weight=1)
         r.grid_rowconfigure(0, weight=1)
@@ -105,7 +136,7 @@ class SettingsWindow:
         logo = ctk.CTkFrame(sb, fg_color="transparent")
         logo.grid(row=0, column=0, padx=20, pady=(22, 4), sticky="w")
         ctk.CTkLabel(logo, text="🎙 VoiceTyper", font=self.f_title).pack(side="left")
-        ctk.CTkLabel(logo, text=" hs ", font=ctk.CTkFont("Segoe UI", 13, "bold"), corner_radius=6,
+        ctk.CTkLabel(logo, text=" hs ", font=ctk.CTkFont(FONT, 13, "bold"), corner_radius=6,
                      fg_color=("#1f2329", "#f2f4f7"), text_color=("#f2f4f7", "#1f2329")).pack(side="left", padx=(6, 0))
         self.status_label = ctk.CTkLabel(sb, text="● Запуск…", font=self.f_s, text_color=STATUS_COLORS["loading"],
                                          wraplength=185, justify="left", anchor="w")
@@ -123,9 +154,13 @@ class SettingsWindow:
                                         fg_color="#d93a4a", hover_color="#b82f3d",
                                         command=self.app.toggle_recording_from_ui)
         self.record_btn.grid(row=len(NAV) + 4, column=0, padx=16, pady=(8, 6), sticky="ew")
+        ctk.CTkButton(sb, text="Выход", height=30, font=self.f_s, fg_color="transparent", border_width=1,
+                      text_color=("gray20", "gray80"), border_color=("gray70", "gray30"),
+                      hover_color=("gray80", "gray25"), command=self.app.quit).grid(
+            row=len(NAV) + 5, column=0, padx=16, pady=(0, 8), sticky="ew")
         ctk.CTkLabel(sb, text=f"{APP_DISPLAY} {__version__}\nРазработчик: {AUTHOR}\n{AUTHOR_ROLE}",
                      font=self.f_s, text_color="gray55", justify="left", anchor="w").grid(
-            row=len(NAV) + 5, column=0, padx=20, pady=(0, 14), sticky="w")
+            row=len(NAV) + 6, column=0, padx=20, pady=(0, 14), sticky="w")
 
     def show_page(self, key: str):
         for k, page in self.pages.items():
@@ -209,6 +244,17 @@ class SettingsWindow:
                        "Как пользоваться: наведите указатель мыши на нужное поле, зажмите горячую клавишу "
                        "и говорите. Отпустите — текст появится там, куда указывает мышь.")
 
+        self.perm_card = ctk.CTkFrame(p, corner_radius=12, fg_color=("#ffe3e3", "#4a1f24"))
+        self.perm_card.grid_columnconfigure(0, weight=1)
+        self.perm_label = ctk.CTkLabel(self.perm_card, text="", font=self.f_b, justify="left", anchor="w",
+                                       wraplength=600)
+        self.perm_label.grid(sticky="w", padx=16, pady=(12, 6))
+        if system.IS_MAC:
+            ctk.CTkButton(self.perm_card, text="Открыть настройки конфиденциальности", width=280,
+                          command=system.open_permission_settings).grid(sticky="w", padx=16, pady=(0, 12))
+        self.perm_card.grid(sticky="ew", pady=(0, 12))
+        self.perm_card.grid_remove()
+
         tip = self._card(p)
         self.tip_label = ctk.CTkLabel(tip, text="", font=self.f_b, justify="left", anchor="w", wraplength=600)
         self.tip_label.grid(sticky="w", padx=16, pady=12)
@@ -228,7 +274,8 @@ class SettingsWindow:
                                             dynamic_resizing=False)
         self.model_menu.pack()
 
-        right = self._row(c, "Вычисления", "GPU требует видеокарту NVIDIA с установленными CUDA 12 и cuDNN.")
+        right = self._row(c, "Вычисления", "GPU требует видеокарту NVIDIA с установленными CUDA 12 и cuDNN."
+                          if system.SUPPORTS_CUDA else "На Mac распознавание идёт на процессоре.")
         dev_var = tk.StringVar(value=DEVICE_INFO.get(self.s.device, self.s.device))
         self._bind(dev_var, "device", lambda v: _inv(DEVICE_INFO, v), self._model_changed)
         self.device_menu = ctk.CTkOptionMenu(right, values=list(DEVICE_INFO.values()), variable=dev_var, width=330,
@@ -404,9 +451,11 @@ class SettingsWindow:
                      "play_sounds")
 
         c = self._card(p, "Запуск")
-        self._switch(self._row(c, "Запускать вместе с Windows"), "autostart")
-        self._switch(self._row(c, "Запускаться свёрнутым в трей",
-                               "Окно настроек открывается двойным кликом по значку в трее."), "start_minimized")
+        os_name = {"windows": "Windows", "macos": "macOS", "linux": "системой"}[system.NAME]
+        self._switch(self._row(c, f"Запускать вместе с {os_name}"), "autostart")
+        hint = ("Окно настроек открывается кликом по значку в Dock." if system.IS_MAC
+                else "Окно настроек открывается двойным кликом по значку в трее.")
+        self._switch(self._row(c, "Запускаться в фоне (без окна)", hint), "start_minimized")
 
         c = self._card(p, "Файлы")
         right = self._row(c, "Папка настроек и журнала", str(APPDATA_DIR))
@@ -435,15 +484,13 @@ class SettingsWindow:
         self.help_label.grid(sticky="w", padx=16, pady=(0, 14))
 
         c = self._card(p, "Системные требования")
-        ctk.CTkLabel(c, font=self.f_b, justify="left", anchor="w", wraplength=600, text=(
-            "• Windows 10 или 11, 64-бит. Linux и macOS не поддерживаются.\n"
-            "• Процессор: 64-битный, от 4 потоков (для моделей medium/large желательно 8+).\n"
-            "• Память: от 4 ГБ ОЗУ для модели small (сама модель занимает ~1 ГБ), 8 ГБ для medium и large.\n"
-            "• Диск: 110 МБ под программу и от 75 МБ до 3 ГБ под модель (small — 480 МБ).\n"
-            "• Микрофон: любой, встроенный или USB.\n"
-            "• Интернет: только чтобы один раз скачать модель (или для облачного режима).\n"
-            "• Видеокарта не обязательна; для ускорения — NVIDIA с CUDA 12 и cuDNN 9.")
-        ).grid(sticky="w", padx=16, pady=(0, 14))
+        reqs = REQUIREMENTS[system.NAME] + [
+            "Микрофон: любой, встроенный или USB.",
+            "Интернет: только чтобы один раз скачать модель (или для облачного режима).",
+            "Есть версии для Windows, macOS и Linux — на странице проекта.",
+        ]
+        ctk.CTkLabel(c, font=self.f_b, justify="left", anchor="w", wraplength=600,
+                     text="\n".join("• " + r for r in reqs)).grid(sticky="w", padx=16, pady=(0, 14))
 
         c = self._card(p, "Стоимость")
         ctk.CTkLabel(c, font=self.f_b, justify="left", anchor="w", wraplength=600, text=(
@@ -467,8 +514,10 @@ class SettingsWindow:
             f"3. Для длинной диктовки нажмите  {pretty(s.hotkey_toggle)}  — начать, ещё раз — закончить.",
             f"4. {pretty(s.hotkey_cancel)} — отменить запись без вставки.",
             "",
-            "• Значок в трее (возле часов): двойной клик — настройки, правый клик — меню.",
-            "• Красный значок — идёт запись, оранжевый — распознавание.",
+            *(["• Значок в Dock: клик — настройки. Индикатор у курсора показывает запись и распознавание."]
+              if system.IS_MAC else
+              ["• Значок в трее (возле часов): двойной клик — настройки, правый клик — меню.",
+               "• Красный значок — идёт запись, оранжевый — распознавание."]),
             "• Если нажать другую клавишу, удерживая клавишу записи, запись отменится.",
             "• Имена и термины пишутся точнее, если добавить их в «Подсказку-словарь».",
             "• Автозапуск с Windows включается в разделе «Интерфейс».",
@@ -596,6 +645,10 @@ class SettingsWindow:
             lines.append("Горячие клавиши не заданы — назначьте их в разделе «Горячие клавиши».")
         self.tip_label.configure(text="\n".join(lines))
 
+    def show_permission_problem(self, text: str):
+        self.perm_label.configure(text="⚠ " + text)
+        self.perm_card.grid()
+
     def set_status(self, state: str, text: str):
         self.status_label.configure(text=f"● {text}", text_color=STATUS_COLORS.get(state, "gray60"))
         recording = state == "recording"
@@ -616,5 +669,9 @@ class SettingsWindow:
         if self._save_job:
             self.root.after_cancel(self._save_job)
             self._save()
-        self.root.withdraw()
-        self.app.on_settings_hidden()
+        if self.app.can_hide_to_background:
+            self.root.withdraw()
+            self.app.on_settings_hidden()
+        else:
+            # трея нет (например, GNOME без расширения) — сворачиваем, иначе окно не вернуть
+            self.root.iconify()

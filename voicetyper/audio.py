@@ -12,12 +12,16 @@ SAMPLE_RATE = 16000
 
 
 def list_microphones() -> list[str]:
-    """Входные устройства через MME (без дублей WASAPI/WDM-KS, сам ресемплирует)."""
+    """Входные устройства одного host API: на Windows — MME (без дублей WASAPI/WDM-KS,
+    сам ресемплирует), на macOS/Linux — API по умолчанию (CoreAudio, ALSA/PulseAudio)."""
     names: list[str] = []
     try:
-        mme = next((i for i, h in enumerate(sd.query_hostapis()) if "MME" in h["name"]), 0)
+        apis = sd.query_hostapis()
+        api = next((i for i, h in enumerate(apis) if "MME" in h["name"]), None)
+        if api is None:
+            api = sd.query_devices(kind="input")["hostapi"]
         for dev in sd.query_devices():
-            if dev["max_input_channels"] > 0 and dev["hostapi"] == mme:
+            if dev["max_input_channels"] > 0 and dev["hostapi"] == api:
                 name = dev["name"].strip()
                 if name not in names and "Microsoft Sound Mapper" not in name and "Переназначение" not in name:
                     names.append(name)

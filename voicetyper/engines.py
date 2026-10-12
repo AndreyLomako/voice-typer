@@ -27,6 +27,22 @@ _HALLUCINATIONS = re.compile(
 )
 
 
+# Модели закреплены по хешу коммита: если репозиторий на Hugging Face подменят или
+# изменят, программа всё равно скачает именно проверенную версию файлов.
+PINNED_MODELS = {
+    "tiny": ("Systran/faster-whisper-tiny", "d90ca5fe260221311c53c58e660288d3deb8d356"),
+    "base": ("Systran/faster-whisper-base", "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66"),
+    "small": ("Systran/faster-whisper-small", "536b0662742c02347bc0e980a01041f333bce120"),
+    "medium": ("Systran/faster-whisper-medium", "08e178d48790749d25932bbc082711ddcfdfbc4f"),
+    "large-v3": ("Systran/faster-whisper-large-v3", "edaa852ec7e145841d8ffdb056a99866b5f0a478"),
+    "large-v3-turbo": ("dropbox-dash/faster-whisper-large-v3-turbo", "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"),
+}
+
+# Управляющие символы и невидимые символы смены направления текста (атака «Trojan Source»)
+_UNSAFE_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
 class TranscribeError(Exception):
     pass
 
@@ -49,12 +65,13 @@ class LocalEngine:
             name = settings.local_model
             if on_status:
                 on_status(f"Загрузка модели «{name}»…")
+            repo, revision = PINNED_MODELS[name]
             try:  # сначала из кэша — без обращения к сети, работает офлайн
-                path = download_model(name, local_files_only=True, cache_dir=str(MODELS_DIR))
+                path = download_model(repo, local_files_only=True, cache_dir=str(MODELS_DIR), revision=revision)
             except Exception:
                 if on_status:
                     on_status(f"Скачиваю модель «{name}» (один раз, может занять несколько минут)…")
-                path = download_model(name, cache_dir=str(MODELS_DIR))
+                path = download_model(repo, cache_dir=str(MODELS_DIR), revision=revision)
             device = settings.device
             try:
                 model = WhisperModel(path, device=device, compute_type="int8" if device == "cpu" else "float16")
@@ -82,11 +99,20 @@ class LocalEngine:
 
 class CloudEngine:
     def transcribe(self, audio: np.ndarray, settings: Settings) -> str:
+        from urllib.parse import urlsplit
+
         import requests
 
-        if not settings.cloud_api_key and "localhost" not in settings.cloud_base_url:
+        base = settings.cloud_base_url.strip()
+        parts = urlsplit(base)
+        loopback = (parts.hostname or "") in _LOOPBACK
+        if parts.scheme not in ("https", "http") or not parts.hostname:
+            raise TranscribeError("Неверный адрес API (нужен https://…)")
+        if parts.scheme == "http" and settings.cloud_api_key and not loopback:
+            raise TranscribeError("Ключ не отправляется по незашифрованному http:// — используйте https://")
+        if not settings.cloud_api_key and not loopback:
             raise TranscribeError("Не указан API-ключ (Настройки → Облако)")
-        url = settings.cloud_base_url.rstrip("/") + "/audio/transcriptions"
+        url = base.rstrip("/") + "/audio/transcriptions"
         data = {"model": settings.cloud_model, "response_format": "json"}
         if settings.language != "auto":
             data["language"] = settings.language
@@ -94,13 +120,18 @@ class CloudEngine:
             data["prompt"] = settings.initial_prompt
         headers = {"Authorization": f"Bearer {settings.cloud_api_key}"} if settings.cloud_api_key else {}
         try:
-            resp = requests.post(url, headers=headers, data=data, timeout=60,
+            # без редиректов: ключ и аудио уходят только на указанный адрес
+            resp = requests.post(url, headers=headers, data=data, timeout=60, allow_redirects=False,
                                  files={"file": ("audio.wav", to_wav_bytes(audio), "audio/wav")})
         except requests.RequestException as exc:
-            raise TranscribeError(f"Сеть: {exc}") from exc
+            raise TranscribeError(f"Сеть: {type(exc).__name__}") from exc
         if resp.status_code != 200:
             raise TranscribeError(f"API {resp.status_code}: {resp.text[:200]}")
-        return resp.json().get("text", "")
+        try:
+            text = resp.json().get("text", "")
+        except (ValueError, AttributeError) as exc:
+            raise TranscribeError("API вернул неожиданный ответ") from exc
+        return text if isinstance(text, str) else ""
 
 
 class Transcriber:
@@ -115,7 +146,7 @@ class Transcriber:
 
 
 def postprocess(text: str, settings: Settings) -> str:
-    text = re.sub(r"\s+", " ", text).strip()
+    text = _UNSAFE_CHARS.sub("", re.sub(r"\s+", " ", text)).strip()
     if not text or _HALLUCINATIONS.match(text):
         return ""
     if settings.strip_final_period and text.endswith(".") and not text.endswith("..."):
