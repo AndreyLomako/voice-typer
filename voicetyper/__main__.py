@@ -36,6 +36,12 @@ def main() -> None:
 
     from . import APP_DISPLAY, system
 
+    if "--gui-smoke" in sys.argv:
+        from .app import App, setup_logging
+        setup_logging(smoke=True)
+        App(minimized=True, smoke_seconds=8).run()
+        return
+
     if not system.acquire_single_instance():
         where = "в Dock" if system.IS_MAC else "в системном трее (возле часов)"
         system.message_box(f"{APP_DISPLAY} уже запущен — значок находится {where}.", APP_DISPLAY)

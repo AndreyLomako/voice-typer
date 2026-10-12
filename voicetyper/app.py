@@ -33,8 +33,20 @@ def resource_path(rel: str) -> str:
     return str(base / rel)
 
 
-def setup_logging() -> None:
+class ErrorCounter(logging.Handler):
+    count = 0
+
+    def emit(self, record):
+        ErrorCounter.count += 1
+        print("ОШИБКА:", self.format(record), file=sys.stderr)
+
+
+def setup_logging(smoke: bool = False) -> None:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+    if smoke:
+        counter = ErrorCounter(level=logging.ERROR)
+        counter.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+        logging.getLogger().addHandler(counter)
     handler = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
     system.restrict_file(LOG_FILE)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
@@ -44,8 +56,11 @@ def setup_logging() -> None:
 
 
 class App:
-    def __init__(self, minimized: bool = False):
+    def __init__(self, minimized: bool = False, smoke_seconds: float = 0):
         self.settings = Settings.load()
+        if smoke_seconds:  # проверка сборки: маленькая модель, окно, хук, трей — и выход
+            self.settings.local_model = "base"
+            self.settings.first_run = False
         self.icon_path = resource_path("assets/icon.ico")
         self.icon_png = resource_path("assets/icon.png")
         self.history: list[tuple[float, str]] = []
@@ -79,6 +94,8 @@ class App:
         self.hotkeys.start()
         self.request_model_preload()
         self.root.after(1200, self._check_permissions)
+        if smoke_seconds:
+            self.root.after(int(smoke_seconds * 1000), self._smoke_finish)
 
         if self.settings.first_run or not (minimized or self.settings.start_minimized):
             # после старта mainloop: CTk при первом запуске сам прячет окно, перекрашивая заголовок
@@ -106,7 +123,7 @@ class App:
             tray.run()
             return tray
         except Exception:
-            log.exception("Значок в трее недоступен")
+            log.warning("Значок в трее недоступен", exc_info=True)
             return None
 
     def _check_permissions(self):
@@ -417,14 +434,25 @@ class App:
             system.clipboard_set_text(self.history[-1][1].strip(), private=False)
             self._notify("Последний текст скопирован в буфер обмена")
 
-    def quit(self):
+    def _smoke_finish(self):
+        for key in list(self.window.pages):
+            self.window.show_page(key)
+            self.root.update()
+        self.overlay.recording(lambda: 0.4, lambda: 3)
+        self.root.update()
+        self.overlay.hide()
+        self.quit(exit_code=1 if ErrorCounter.count else 0, save=False)
+
+    def quit(self, exit_code: int = 0, save: bool = True):
         log.info("Выход")
         try:
             self.hotkeys.stop()
             self.recorder.stop()
-            self.settings.save()
+            if save:
+                self.settings.save()
         finally:
             if self.tray is not None:
                 self.tray.stop()
             self.root.destroy()
-            os._exit(0)
+            logging.shutdown()
+            os._exit(exit_code)

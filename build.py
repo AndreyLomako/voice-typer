@@ -115,6 +115,13 @@ def smoke_test() -> None:
     if "привет" not in text.lower():
         sys.exit("Проверка не пройдена: в результате нет слова «Привет»")
 
+    # Интерфейс: окно, все страницы, индикатор, хук клавиатуры, трей
+    cmd = [str(built_binary()), "--gui-smoke"]
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+        cmd = ["xvfb-run", "-a", *cmd]
+    subprocess.check_call(cmd, timeout=180)
+    print("Интерфейс запускается без ошибок")
+
 
 def main() -> None:
     subprocess.check_call([sys.executable, "make_icon.py"], cwd=ROOT)

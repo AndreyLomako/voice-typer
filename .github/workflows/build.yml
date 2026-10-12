@@ -23,15 +23,15 @@ jobs:
       HF_HUB_DISABLE_XET: "1"
       PYTHONIOENCODING: utf-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Системные пакеты (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xclip
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xclip xvfb
 
       - name: Зависимости
         run: |
