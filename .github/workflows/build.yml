@@ -49,6 +49,17 @@ jobs:
       - name: Проверка зависимостей на известные уязвимости
         run: pip-audit -r requirements.txt
 
+      - name: Диагностика интерфейса (Linux)
+        if: runner.os == 'Linux' && inputs.only == 'linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y gdb >/dev/null
+          python make_icon.py
+          echo "=== из исходников"; xvfb-run -a python -X faulthandler -m voicetyper --gui-smoke; echo "exit=$?"
+          python build.py || true
+          echo "=== собранный, gdb"
+          xvfb-run -a gdb -batch -ex "set follow-fork-mode child" -ex "set detach-on-fork off" -ex run -ex "thread apply all bt 25" --args dist/VoiceTyper-hs --gui-smoke 2>&1 | grep -vE "^\[(New|Thread|Detaching|Inferior)" | tail -120
+
       - name: Сборка и проверка распознавания
         run: python build.py --smoke
 
