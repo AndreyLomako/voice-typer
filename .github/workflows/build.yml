@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Собрать только одну ОС (windows / macos / linux), пусто — все"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -13,11 +18,14 @@ jobs:
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
+      # ubuntu-22.04: старый glibc — бинарник запустится и на новых дистрибутивах
       matrix:
-        include:
-          - { name: Windows, os: windows-latest }
-          - { name: macOS (Apple Silicon), os: macos-latest }
-          - { name: Linux x86_64, os: ubuntu-22.04 }   # старый glibc — бинарник запустится и на новых дистрибутивах
+        include: >-
+          ${{ fromJSON(
+          inputs.only == 'windows' && '[{"name":"Windows","os":"windows-latest"}]' ||
+          inputs.only == 'macos' && '[{"name":"macOS (Apple Silicon)","os":"macos-latest"}]' ||
+          inputs.only == 'linux' && '[{"name":"Linux x86_64","os":"ubuntu-22.04"}]' ||
+          '[{"name":"Windows","os":"windows-latest"},{"name":"macOS (Apple Silicon)","os":"macos-latest"},{"name":"Linux x86_64","os":"ubuntu-22.04"}]') }}
     runs-on: ${{ matrix.os }}
     env:
       HF_HUB_DISABLE_XET: "1"

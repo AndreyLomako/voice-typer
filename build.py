@@ -39,7 +39,11 @@ COMMON = [
 
 
 def pyinstaller(*args: str) -> None:
-    subprocess.check_call([sys.executable, "-m", "PyInstaller", *COMMON, *args, "run.py"], cwd=ROOT)
+    cmd = [sys.executable, "-m", "PyInstaller", *COMMON, *args, "run.py"]
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and shutil.which("xvfb-run"):
+        # pynput и pystray при импорте подключаются к X-серверу — иначе их хуки PyInstaller не отработают
+        cmd = ["xvfb-run", "-a", *cmd]
+    subprocess.check_call(cmd, cwd=ROOT)
 
 
 def build_windows() -> Path:

@@ -37,6 +37,8 @@ def main() -> None:
     from . import APP_DISPLAY, system
 
     if "--gui-smoke" in sys.argv:
+        import faulthandler
+        faulthandler.enable(all_threads=True)
         from .app import App, setup_logging
         setup_logging(smoke=True)
         App(minimized=True, smoke_seconds=8).run()
