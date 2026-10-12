@@ -1,0 +1,26 @@
+name: Диагностика Tk на Linux (временная)
+
+on: workflow_dispatch
+
+jobs:
+  tk:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update >/dev/null && sudo apt-get install -y xvfb python3-tk fonts-dejavu-core >/dev/null
+      - name: Пробы
+        run: |
+          cat > /tmp/t.py <<'EOF'
+          import sys, tkinter
+          print(sys.version.split()[0], tkinter.TkVersion, tkinter.__file__)
+          r = tkinter.Tk()
+          for fam in ("TkDefaultFont", "DejaVu Sans", "Helvetica"):
+              tkinter.Label(r, text="Привет", font=(fam, 13)).pack(); r.update(); print("ok", fam)
+          c = tkinter.Canvas(r); c.pack(); c.create_text(5, 5, text="x", font=("DejaVu Sans", 12)); r.update(); print("ok canvas")
+          EOF
+          echo "== setup-python"; xvfb-run -a python -X faulthandler /tmp/t.py; echo "exit=$?"
+          ldd $(python -c "import _tkinter;print(_tkinter.__file__)") | grep -iE "tk|tcl|xft|fontconfig|freetype"
+          echo "== system python3"; xvfb-run -a /usr/bin/python3 -X faulthandler /tmp/t.py; echo "exit=$?"
+          echo "== setup-python без Xft-шрифтов (TK_NO_XFT нет, пробуем LC_ALL=C)"; LC_ALL=C xvfb-run -a python -X faulthandler /tmp/t.py; echo "exit=$?"
